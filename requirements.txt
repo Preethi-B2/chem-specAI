@@ -1,0 +1,23 @@
+# UI
+streamlit>=1.35.0
+ 
+# Azure OpenAI
+openai>=1.30.0
+ 
+# Azure AI Search
+azure-search-documents>=11.6.0
+azure-core>=1.30.0
+ 
+# Azure Blob Storage
+azure-storage-blob>=12.20.0
+ 
+# PDF extraction
+pypdf>=4.2.0
+ 
+# Environment management
+python-dotenv>=1.0.1
+ 
+# Utilities
+tiktoken>=0.7.0
+tenacity>=8.3.0
+ 
