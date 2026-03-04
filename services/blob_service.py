@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
  
 def _get_client() -> BlobServiceClient:
     """Return a configured BlobServiceClient."""
+    if not AZURE_BLOB_CONNECTION_STRING:
+        raise EnvironmentError(
+            "AZURE_BLOB_CONNECTION_STRING is not set in your .env file. "
+            "Get it from Azure Portal → Storage Accounts → Access keys → Connection string."
+        )
     return BlobServiceClient.from_connection_string(AZURE_BLOB_CONNECTION_STRING)
  
  
@@ -192,3 +197,4 @@ def delete_document(blob_path: str) -> None:
     except AzureError as e:
         logger.error(f"Blob deletion failed for '{blob_path}': {e}")
         raise
+ 

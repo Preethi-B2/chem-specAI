@@ -14,7 +14,7 @@ This is the ONLY retrieval path in the system.
 The LLM decides when retrieval is needed — we never bypass this.
  
 Tool contract:
-  Input  → query (str), doc_type (str), user_id (str)
+  Input  → query (str), doc_type (str)
   Output → list of chunk dicts with content, source, section, score
 """
  
@@ -62,12 +62,8 @@ RETRIEVE_CHUNKS_TOOL: dict[str, Any] = {
                         "'tds' for technical information (specifications, performance, application)."
                     ),
                 },
-                "user_id": {
-                    "type": "string",
-                    "description": "The current user's session ID for document isolation.",
-                },
             },
-            "required": ["query", "doc_type", "user_id"],
+            "required": ["query", "doc_type"],
         },
     },
 }
@@ -78,7 +74,6 @@ RETRIEVE_CHUNKS_TOOL: dict[str, Any] = {
 def execute_retrieve_chunks(
     query: str,
     doc_type: str,
-    user_id: str,
     top_k: int = TOP_K_CHUNKS,
 ) -> list[dict[str, Any]]:
     """
@@ -92,16 +87,15 @@ def execute_retrieve_chunks(
     Args:
         query:    The search query string (LLM-generated from user question).
         doc_type: "sds" or "tds" — controls metadata filter.
-        user_id:  Current user's session ID — enforces document isolation.
         top_k:    Number of chunks to retrieve (default from settings).
  
     Returns:
         List of chunk dicts, each containing:
-          id, content, section, type, source, upload_timestamp, score
+          id, content, section, type, source, score
     """
     logger.info(
         f"[tool] retrieve_chunks called | "
-        f"query='{query[:60]}...' | doc_type={doc_type} | user={user_id[:8]}..."
+        f"query='{query[:60]}...' | doc_type={doc_type}"
     )
  
     # Step 1 — Embed the query
@@ -111,7 +105,6 @@ def execute_retrieve_chunks(
     chunks = vector_search(
         query_vector=query_vector,
         doc_type=doc_type,
-        user_id=user_id,
         top_k=top_k,
     )
  
@@ -124,7 +117,6 @@ def execute_retrieve_chunks(
 def dispatch_tool_call(
     tool_name: str,
     tool_arguments_json: str,
-    user_id: str,
 ) -> str:
     """
     Dispatch an LLM tool call by name and return the result as a JSON string.
@@ -133,8 +125,6 @@ def dispatch_tool_call(
     Args:
         tool_name:            Name of the tool the LLM called (e.g. "retrieve_chunks").
         tool_arguments_json:  Raw JSON string of arguments from the LLM tool call.
-        user_id:              Current session user ID (injected for security —
-                              we never trust the user_id from LLM arguments alone).
  
     Returns:
         JSON string of tool results, to be sent back to the LLM as a
@@ -156,21 +146,12 @@ def dispatch_tool_call(
     query    = args.get("query", "")
     doc_type = args.get("doc_type", "sds")
  
-    # SECURITY: Always use the server-side user_id, not whatever LLM passed
-    # This prevents prompt injection attacks from spoofing another user's data
-    if args.get("user_id") != user_id:
-        logger.warning(
-            f"LLM passed user_id='{args.get('user_id')}' but "
-            f"server user_id='{user_id}'. Using server value."
-        )
- 
     if not query:
         return json.dumps({"chunks": [], "message": "Empty query — no retrieval performed."})
  
     chunks = execute_retrieve_chunks(
         query=query,
         doc_type=doc_type,
-        user_id=user_id,
     )
  
     # Return only what the LLM needs — exclude the raw vector
@@ -181,7 +162,6 @@ def dispatch_tool_call(
                 "source":           c["source"],
                 "section":          c.get("section", ""),
                 "score":            round(c["score"], 4),
-                "upload_timestamp": c.get("upload_timestamp", ""),
             }
             for c in chunks
         ],

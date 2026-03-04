@@ -17,8 +17,6 @@ SearchIndexClient APIs.
   type            → Document type: "sds" or "tds"
   source          → Source filename, e.g. "chemical_x_sds.pdf"
   contentVector   → Embedding vector (HNSW)
-  user_id         → Per-user isolation filter
-  upload_timestamp→ ISO 8601 upload time
 """
  
 from __future__ import annotations
@@ -83,7 +81,6 @@ def ensure_index_exists() -> None:
  
     Index schema (exact field names used in Azure):
       id, content, section, type, source, contentVector,
-      user_id, upload_timestamp
  
     Safe to call on every app startup — skips creation if index exists.
     """
@@ -159,14 +156,6 @@ def ensure_index_exists() -> None:
             type=SearchFieldDataType.String,
             filterable=True,
         ),
-        # ── Upload timestamp ──────────────────────────────────
-        SimpleField(
-            name="upload_timestamp",
-            type=SearchFieldDataType.String,
-            filterable=True,
-            sortable=True,
-            retrievable=True,
-        ),
     ]
  
     index = SearchIndex(
@@ -177,7 +166,8 @@ def ensure_index_exists() -> None:
  
     index_client.create_index(index)
     logger.info(f"Index '{AZURE_SEARCH_INDEX_NAME}' created successfully.")
-    
+ 
+ 
 # ── Index Chunks ─────────────────────────────────────────────
  
 def index_chunks(chunks: list[dict[str, Any]]) -> int:
@@ -192,8 +182,6 @@ def index_chunks(chunks: list[dict[str, Any]]) -> int:
             "type":             str,   # "sds" or "tds"
             "source":           str,   # Source filename
             "contentVector":    list,  # Embedding vector
-            "user_id":          str,   # Session user ID
-            "upload_timestamp": str,   # ISO 8601 timestamp
         }
  
     Args:
@@ -233,7 +221,6 @@ def index_chunks(chunks: list[dict[str, Any]]) -> int:
 def vector_search(
     query_vector: list[float],
     doc_type: str,
-    user_id: str,
     top_k: int = TOP_K_CHUNKS,
 ) -> list[dict[str, Any]]:
     """
@@ -241,17 +228,16 @@ def vector_search(
  
     Combines:
       - HNSW vector search on the 'contentVector' field
-      - OData filter on 'type' (sds/tds) and 'user_id'
+      - OData filter on 'type' (sds/tds)
  
     Args:
         query_vector: Embedding of the user's query.
         doc_type:     "sds" or "tds" — maps to the 'type' field in index.
-        user_id:      Current user's ID — enforces per-user isolation.
         top_k:        Number of top chunks to retrieve.
  
     Returns:
         List of chunk dicts with keys:
-          id, content, section, type, source, upload_timestamp, score
+          id, content, section, type, source, score
     """
     try:
         search_client = _get_search_client()
@@ -263,13 +249,13 @@ def vector_search(
         )
  
         # OData filter using exact index field names
-        odata_filter = f"type eq '{doc_type}' and user_id eq '{user_id}'"
+        odata_filter = f"type eq '{doc_type}'"
  
         results = search_client.search(
             search_text=None,                    # Pure vector search
             vector_queries=[vector_query],
             filter=odata_filter,
-            select=["id", "content", "section", "type", "source", "upload_timestamp"],
+            select=["id", "content", "section", "type", "source"],
             top=top_k,
         )
  
@@ -281,13 +267,12 @@ def vector_search(
                 "section":          result.get("section", ""),
                 "type":             result["type"],
                 "source":           result["source"],
-                "upload_timestamp": result.get("upload_timestamp", ""),
                 "score":            result["@search.score"],
             })
  
         logger.info(
             f"Vector search returned {len(chunks)} chunks "
-            f"[type={doc_type}, user_id={user_id[:8]}...]"
+            f"[type={doc_type}]"
         )
         return chunks
  
@@ -298,14 +283,10 @@ def vector_search(
  
 # ── Dashboard Analytics ───────────────────────────────────────
  
-def get_dashboard_stats(user_id: str) -> dict[str, Any]:
+def get_dashboard_stats() -> dict[str, Any]:
     """
     Fetch analytics data for the dashboard tab.
-    All queries are scoped to the current user_id.
-    Uses exact index field names: 'type', 'source', 'upload_timestamp'.
- 
-    Args:
-        user_id: Current user's session identifier.
+    Uses exact index field names: 'type', 'source'.
  
     Returns:
         Dict with keys:
@@ -314,12 +295,10 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
     """
     try:
         search_client = _get_search_client()
-        user_filter = f"user_id eq '{user_id}'"
  
         # ── Total chunks ──────────────────────────────────────
         total_result = search_client.search(
             search_text="*",
-            filter=user_filter,
             include_total_count=True,
             top=0,
         )
@@ -328,7 +307,7 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
         # ── SDS chunk count ───────────────────────────────────
         sds_result = search_client.search(
             search_text="*",
-            filter=f"{user_filter} and type eq 'sds'",      # ← 'type' not 'doc_type'
+            filter="type eq 'sds'",
             include_total_count=True,
             top=0,
         )
@@ -337,7 +316,7 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
         # ── TDS chunk count ───────────────────────────────────
         tds_result = search_client.search(
             search_text="*",
-            filter=f"{user_filter} and type eq 'tds'",      # ← 'type' not 'doc_type'
+            filter="type eq 'tds'",
             include_total_count=True,
             top=0,
         )
@@ -346,9 +325,7 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
         # ── Recent uploads (deduplicated by source) ───────────
         recent_result = search_client.search(
             search_text="*",
-            filter=user_filter,
-            select=["source", "type", "upload_timestamp"],   # ← 'source' not 'file_name'
-            order_by=["upload_timestamp desc"],
+            select=["source", "type"],
             top=50,
         )
  
@@ -361,7 +338,6 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
                 recent_uploads.append({
                     "source":           fname,
                     "type":             doc.get("type", ""),
-                    "upload_timestamp": doc.get("upload_timestamp", ""),
                 })
             if len(recent_uploads) >= 10:
                 break
@@ -377,5 +353,4 @@ def get_dashboard_stats(user_id: str) -> dict[str, Any]:
     except AzureError as e:
         logger.error(f"Dashboard stats query failed: {e}")
         raise
-
  

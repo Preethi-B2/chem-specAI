@@ -160,7 +160,6 @@ def run_query(
                 tool_result_json = dispatch_tool_call(
                     tool_name=tool_name,
                     tool_arguments_json=tool_args_json,
-                    user_id=user_id,
                 )
  
                 # Collect retrieved chunks for the QueryResult metadata

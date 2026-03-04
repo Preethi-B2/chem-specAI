@@ -16,7 +16,6 @@ It returns structured chunk dicts ready for search_service.index_chunks().
  
 Index field names used here (must match Azure index exactly):
     id, content, section, type, source, contentVector,
-    user_id, upload_timestamp
 """
  
 from __future__ import annotations
@@ -33,7 +32,7 @@ from services.openai_service import (
     generate_embedding,
 )
 from utils.chunker import chunk_text, TextChunk
-from utils.helpers import generate_chunk_id, utc_now_iso
+from utils.helpers import generate_chunk_id
 from utils.prompt_loader import load_prompt
  
 logger = logging.getLogger(__name__)
@@ -148,13 +147,10 @@ def process_document(
     Args:
         pdf_bytes: Raw bytes of the uploaded PDF file.
         filename:  Original filename (used as 'source' in index).
-        user_id:   Session user ID (stored per chunk for isolation).
  
     Returns:
         ProcessedDocument containing all index-ready chunk dicts.
     """
-    timestamp = utc_now_iso()
- 
     # ── Step 1: Extract text ──────────────────────────────────
     logger.info(f"[1/5] Extracting text from '{filename}'...")
     full_text, page_count = extract_text_from_pdf(pdf_bytes)
@@ -194,8 +190,6 @@ def process_document(
             "type":             doc_type,           # "sds" or "tds"
             "source":           filename,            # original filename
             "contentVector":    embedding,           # vector field name in Azure
-            "user_id":          user_id,
-            "upload_timestamp": timestamp,
         }
         index_docs.append(index_doc)
  

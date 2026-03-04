@@ -45,7 +45,9 @@ AZURE_SEARCH_API_KEY: str     = _require("AZURE_SEARCH_API_KEY")
 AZURE_SEARCH_INDEX_NAME: str  = _optional("AZURE_SEARCH_INDEX_NAME", "chemistry-docs-index")
  
 # ── Azure Blob Storage ──────────────────────────────────────
-AZURE_BLOB_CONNECTION_STRING: str = _require("AZURE_BLOB_CONNECTION_STRING")
+# Optional at import time — raises a clear error at call time if missing,
+# rather than crashing the entire app on startup.
+AZURE_BLOB_CONNECTION_STRING: str = _optional("AZURE_BLOB_CONNECTION_STRING", "")
 AZURE_BLOB_CONTAINER_NAME: str    = _optional("AZURE_BLOB_CONTAINER_NAME", "chemistry-docs")
  
 # ── Application ─────────────────────────────────────────────
@@ -54,3 +56,4 @@ MAX_MEMORY_TURNS: int   = int(_optional("MAX_MEMORY_TURNS", "5"))
 TOP_K_CHUNKS: int       = int(_optional("TOP_K_CHUNKS", "5"))
 CHUNK_SIZE: int         = int(_optional("CHUNK_SIZE", "500"))
 CHUNK_OVERLAP: int      = int(_optional("CHUNK_OVERLAP", "50"))
+ 
