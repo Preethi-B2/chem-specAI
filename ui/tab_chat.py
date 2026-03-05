@@ -28,7 +28,7 @@ from core.memory_manager import (
     clear_memory,
     get_turn_count,
 )
-from core.query_engine import run_query, QueryResult
+from core.graph import run_query, QueryResult
 from utils.helpers import get_user_id
  
 logger = logging.getLogger(__name__)
