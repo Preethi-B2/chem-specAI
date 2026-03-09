@@ -32,7 +32,14 @@ logger = logging.getLogger(__name__)
 _MAX_FILE_SIZE_MB = 20
 _MAX_FILE_SIZE_BYTES = _MAX_FILE_SIZE_MB * 1024 * 1024
  
- 
+def _yellow_boxes() -> str:
+    box = (
+        '<span style="display:inline-block;width:10px;height:10px;'
+        'background:#F5C518;border-radius:2px;margin-left:5px;'
+        'vertical-align:middle;"></span>'
+    )
+    return box * 3
+
 def render_upload_tab() -> None:
     """
     Render the full Tab 1 — Document Upload interface.
@@ -40,7 +47,8 @@ def render_upload_tab() -> None:
     """
     user_id = get_user_id(st.session_state)
  
-    st.header("📂 Document Upload")
+    st.header("Document Upload")
+    
     st.caption(
         "Upload a chemistry PDF (SDS or TDS). "
         "The system will automatically classify, chunk, embed, and index it."

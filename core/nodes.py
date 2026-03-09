@@ -18,6 +18,14 @@ Nodes defined here:
   should_continue     — conditional edge: 'tools' or 'end'
  
 tool_node is built using LangGraph's prebuilt ToolNode in graph.py.
+ 
+Refusal handling:
+  Out-of-scope or harmful questions (weapons, dangerous synthesis, etc.)
+  are handled at two levels:
+    1. system_prompt.md instructs the LLM to decline gracefully — this
+       covers 99% of cases with no error at all.
+    2. agent_node catches any exception thrown by the Azure OpenAI content
+       filter and returns a polite refusal message instead of crashing.
 """
  
 from __future__ import annotations
@@ -43,6 +51,13 @@ logger = logging.getLogger(__name__)
  
 # Safety cap — max agent_node iterations before forcing END
 _MAX_ITERATIONS = 5
+ 
+# Shown to the user whenever a question is out of scope or harmful.
+# Kept in one place so it is easy to update.
+_REFUSAL_MESSAGE = (
+    "I'm designed to help with SDS and TDS chemistry documents only. "
+    "I'm not able to assist with that request."
+)
  
  
 # ── Shared LLM factory ────────────────────────────────────────
@@ -77,26 +92,36 @@ def classify_node(state: GraphState) -> dict:
     Sets doc_type in state, which the retrieve_chunks tool reads
     to apply the correct OData filter on vector search.
  
+    If classification itself fails for any reason, defaults to 'sds'
+    so the rest of the graph can still run gracefully.
+ 
     Returns:
         { doc_type: 'sds' | 'tds' }
     """
     logger.info("[classify_node] classifying question...")
  
-    # Build conversation history text from prior HumanMessage/AIMessage pairs
-    history_lines = []
-    for msg in state["messages"]:
-        if isinstance(msg, HumanMessage):
-            history_lines.append(f"User: {msg.content}")
-        elif isinstance(msg, AIMessage) and msg.content:
-            history_lines.append(f"Assistant: {msg.content}")
-    conversation_history = "\n".join(history_lines) if history_lines else ""
+    try:
+        # Build conversation history text from prior HumanMessage/AIMessage pairs
+        history_lines = []
+        for msg in state["messages"]:
+            if isinstance(msg, HumanMessage):
+                history_lines.append(f"User: {msg.content}")
+            elif isinstance(msg, AIMessage) and msg.content:
+                history_lines.append(f"Assistant: {msg.content}")
+        conversation_history = "\n".join(history_lines) if history_lines else ""
  
-    prompt = load_prompt("query_classifier.md")
-    doc_type = classify_query(
-        user_question=state["question"],
-        conversation_history=conversation_history,
-        query_classifier_prompt=prompt,
-    )
+        prompt = load_prompt("query_classifier.md")
+        doc_type = classify_query(
+            user_question=state["question"],
+            conversation_history=conversation_history,
+            query_classifier_prompt=prompt,
+        )
+ 
+    except Exception as e:
+        logger.error(
+            f"[classify_node] Classification failed: {e}. Defaulting to 'sds'."
+        )
+        doc_type = "sds"
  
     logger.info(f"[classify_node] doc_type = '{doc_type}'")
     return {"doc_type": doc_type}
@@ -111,6 +136,12 @@ def agent_node(state: GraphState) -> dict:
     The LLM will either:
       a) Emit tool_calls → retrieve_chunks will be executed by tool_node
       b) Return a text answer → should_continue routes to END
+      c) Decline the question (guided by system_prompt.md) → polite refusal text
+ 
+    If the Azure OpenAI content filter triggers or any other exception
+    occurs during the LLM call, agent_node catches it and returns the
+    standard _REFUSAL_MESSAGE instead of crashing. The graph continues
+    to collect_chunks_node and END normally — the UI never sees an error.
  
     Increments the iteration counter on every call.
  
@@ -120,8 +151,29 @@ def agent_node(state: GraphState) -> dict:
     iteration = state.get("iterations", 0) + 1
     logger.info(f"[agent_node] iteration {iteration}/{_MAX_ITERATIONS}")
  
-    llm = _get_llm()
-    response: AIMessage = llm.invoke(state["messages"])
+    try:
+        llm = _get_llm()
+        response: AIMessage = llm.invoke(state["messages"])
+ 
+    except Exception as e:
+        # Catches Azure OpenAI content filter errors, rate limits,
+        # network failures, and any other exception from the LLM call.
+        # The real error is logged internally but only a clean message
+        # is returned to the user — no stack traces, no raw API errors.
+        error_str = str(e).lower()
+ 
+        if any(keyword in error_str for keyword in [
+            "content_filter", "content filter", "filtered",
+            "responsible ai", "safety", "policy", "violat",
+        ]):
+            logger.warning(f"[agent_node] Content filter triggered: {e}")
+        else:
+            logger.error(f"[agent_node] LLM call failed: {e}")
+ 
+        return {
+            "messages":   [AIMessage(content=_REFUSAL_MESSAGE)],
+            "iterations": iteration,
+        }
  
     return {
         "messages":   [response],   # operator.add appends to existing messages
@@ -154,7 +206,7 @@ def collect_chunks_node(state: GraphState) -> dict:
                 all_chunks.extend(result.get("chunks", []))
             except (json.JSONDecodeError, AttributeError, TypeError):
                 logger.warning(
-                    f"[collect_chunks_node] Failed to parse ToolMessage content."
+                    "[collect_chunks_node] Failed to parse ToolMessage content."
                 )
  
     logger.info(
@@ -179,7 +231,7 @@ def should_continue(state: GraphState) -> str:
     Logic:
       - If iteration cap reached → force 'end' (safety valve)
       - If last message has tool_calls → route to 'tools'
-      - Otherwise → route to 'end' (LLM gave a text answer)
+      - Otherwise → route to 'end' (LLM gave a text answer or refusal)
  
     Returns:
         'tools' → execute tool_node next

@@ -6,7 +6,7 @@ No Azure dependencies — safe to import and test anywhere.
 """
  
 from __future__ import annotations
- 
+import os
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +27,9 @@ def generate_chunk_id(file_name: str, chunk_index: int) -> str:
     Returns:
         Hex digest string, e.g. "a3f9e2..."
     """
-    raw = f"{file_name}::{chunk_index}"
+    #raw = f"{file_name}::{chunk_index}"
+    base_name = os.path.splitext(file_name)[0]
+    raw = f"{base_name}::{chunk_index}"
     return hashlib.sha256(raw.encode()).hexdigest()
  
  

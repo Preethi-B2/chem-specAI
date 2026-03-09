@@ -45,7 +45,9 @@ def render_chat_tab() -> None:
     user_id = get_user_id(st.session_state)
  
     # ── Header ────────────────────────────────────────────────
-    st.header("💬 Chemistry Document Chat")
+    st.header("Chemistry Document Chat")
+
+
     st.caption(
         "Ask questions about your uploaded SDS or TDS documents. "
         "The system retrieves relevant chunks and generates grounded answers."
@@ -119,6 +121,21 @@ def _handle_user_message(user_question: str, user_id: str) -> None:
                     user_message=user_question,
                     assistant_message=result.answer,
                 )
+ 
+                # ── Log query for dashboard similarity metrics ─
+                # query_log is read by tab_dashboard to compute
+                # avg/best/worst similarity scores and the
+                # per-query breakdown table.
+                if "query_log" not in st.session_state:
+                    st.session_state["query_log"] = []
+                if result.tool_was_called:
+                    st.session_state["query_log"].append({
+                        "question":   user_question,
+                        "doc_type":   result.doc_type,
+                        "chunks":     result.chunks_retrieved,
+                        "iterations": result.iterations,
+                        "tool_called": result.tool_was_called,
+                    })
  
                 # Add to display history
                 st.session_state[_CHAT_HISTORY_KEY].append({
@@ -254,11 +271,11 @@ def _render_memory_controls() -> None:
  
     with mem_col1:
         if turn_count == 0:
-            st.caption("🧠 Memory: No conversation history yet.")
+            st.caption(" Memory: No conversation history yet.")
         else:
             from config.settings import MAX_MEMORY_TURNS
             st.caption(
-                f"🧠 Memory: {turn_count}/{MAX_MEMORY_TURNS} turns stored "
+                f" Memory: {turn_count}/{MAX_MEMORY_TURNS} turns stored "
                 f"(session only — cleared on page refresh)"
             )
  
@@ -283,4 +300,3 @@ def _render_upload_reminder() -> None:
             "before starting a chat.",
             icon="ℹ️",
         )
- 

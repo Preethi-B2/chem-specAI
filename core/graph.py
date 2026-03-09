@@ -25,6 +25,13 @@ user question — no rebuild cost per request.
  
 Public interface (unchanged from old query_engine.py):
     from core.graph import run_query, QueryResult
+ 
+Refusal / error handling:
+  - Graceful refusals for harmful or out-of-scope questions are
+    handled inside agent_node (see core/nodes.py).
+  - If the entire graph crashes for any unexpected reason, run_query's
+    outer except block returns a safe, user-friendly message instead
+    of propagating the exception to the UI.
 """
  
 from __future__ import annotations
@@ -47,6 +54,7 @@ from core.nodes import (
     agent_node,
     collect_chunks_node,
     should_continue,
+    _REFUSAL_MESSAGE,
 )
 from utils.prompt_loader import load_prompt
  
@@ -136,6 +144,14 @@ def run_query(
       4. Extract final AIMessage and chunk metadata
       5. Return QueryResult to the UI
  
+    Harmful / out-of-scope questions are handled inside agent_node and
+    never reach this function as exceptions — they come back as a normal
+    QueryResult with the refusal text as the answer.
+ 
+    If the graph itself crashes for any other unexpected reason, the outer
+    except block here ensures the UI always receives a clean message and
+    never sees a raw Python exception or stack trace.
+ 
     Args:
         user_question:             The user's current question string.
         user_id:                   Session user ID (kept for signature compat).
@@ -177,17 +193,18 @@ def run_query(
         final_state: GraphState = _graph.invoke(initial_state)
  
     except Exception as e:
-        logger.exception("[run_query] Graph execution failed.")
+        # Last-resort catch — agent_node already handles LLM errors
+        # gracefully, so this only fires if something truly unexpected
+        # breaks the graph structure itself (e.g. import error, bug).
+        # The real exception is logged; the user sees a clean message.
+        logger.exception("[run_query] Graph execution failed unexpectedly.")
         return QueryResult(
-            answer=(
-                "An unexpected error occurred while processing your question. "
-                "Please try again."
-            ),
+            answer=_REFUSAL_MESSAGE,
             doc_type="sds",
             chunks_retrieved=[],
             tool_was_called=False,
             iterations=0,
-            error=str(e),
+            error=str(e),   # logged internally, never displayed in UI
         )
  
     # ── Step 4: Extract final answer from last AIMessage ──────────
@@ -219,4 +236,3 @@ def run_query(
         iterations=final_state.get("iterations", 0),
         error=final_state.get("error"),
     )
- 
