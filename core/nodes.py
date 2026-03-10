@@ -55,7 +55,7 @@ _MAX_ITERATIONS = 5
 # Shown to the user whenever a question is out of scope or harmful.
 # Kept in one place so it is easy to update.
 _REFUSAL_MESSAGE = (
-    "I'm designed to help with SDS and TDS chemistry documents only. "
+    "I'm designed to be ethical and responsible with my answers. "
     "I'm not able to assist with that request."
 )
  
